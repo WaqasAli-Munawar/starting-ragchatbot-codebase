@@ -29,6 +29,11 @@ function setupEventListeners() {
         if (e.key === 'Enter') sendMessage();
     });
     
+    // New chat button
+    const newChatButton = document.getElementById('newChatButton');
+    if (newChatButton) {
+        newChatButton.addEventListener('click', startNewChat);
+    }
     
     // Suggested questions
     document.querySelectorAll('.suggested-item').forEach(button => {
@@ -122,10 +127,25 @@ function addMessage(content, type, sources = null, isWelcome = false) {
     let html = `<div class="message-content">${displayContent}</div>`;
     
     if (sources && sources.length > 0) {
+        // Process sources to handle clickable links
+        const processedSources = sources.map(source => {
+            try {
+                // Try to parse as JSON object (structured source with URL)
+                const sourceObj = JSON.parse(source);
+                if (sourceObj.text && sourceObj.url) {
+                    return `<a href="${escapeHtml(sourceObj.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sourceObj.text)}</a>`;
+                }
+            } catch (e) {
+                // Not JSON, treat as plain text
+            }
+            // Fallback to plain text for non-structured sources
+            return escapeHtml(source);
+        });
+        
         html += `
             <details class="sources-collapsible">
                 <summary class="sources-header">Sources</summary>
-                <div class="sources-content">${sources.join(', ')}</div>
+                <div class="sources-content">${processedSources.join(', ')}</div>
             </details>
         `;
     }
@@ -150,6 +170,39 @@ async function createNewSession() {
     currentSessionId = null;
     chatMessages.innerHTML = '';
     addMessage('Welcome to the Course Materials Assistant! I can help you with questions about courses, lessons and specific content. What would you like to know?', 'assistant', null, true);
+}
+
+async function startNewChat() {
+    // Clear any pending requests by disabling input temporarily
+    const wasDisabled = chatInput.disabled;
+    chatInput.disabled = true;
+    sendButton.disabled = true;
+    
+    try {
+        // Reset session state
+        currentSessionId = null;
+        
+        // Clear chat messages
+        chatMessages.innerHTML = '';
+        
+        // Clear input field
+        chatInput.value = '';
+        
+        // Add welcome message
+        addMessage('Welcome to the Course Materials Assistant! I can help you with questions about courses, lessons and specific content. What would you like to know?', 'assistant', null, true);
+        
+        // Focus on input for immediate typing
+        setTimeout(() => {
+            chatInput.focus();
+        }, 100);
+        
+    } catch (error) {
+        console.error('Error starting new chat:', error);
+    } finally {
+        // Re-enable input
+        chatInput.disabled = wasDisabled;
+        sendButton.disabled = false;
+    }
 }
 
 // Load course statistics

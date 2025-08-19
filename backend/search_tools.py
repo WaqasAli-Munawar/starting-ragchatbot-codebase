@@ -87,6 +87,8 @@ class CourseSearchTool(Tool):
     
     def _format_results(self, results: SearchResults) -> str:
         """Format search results with course and lesson context"""
+        import json
+        
         formatted = []
         sources = []  # Track sources for the UI
         
@@ -100,11 +102,29 @@ class CourseSearchTool(Tool):
                 header += f" - Lesson {lesson_num}"
             header += "]"
             
-            # Track source for the UI
-            source = course_title
+            # Build source object with potential link
+            source_text = course_title
             if lesson_num is not None:
-                source += f" - Lesson {lesson_num}"
-            sources.append(source)
+                source_text += f" - Lesson {lesson_num}"
+            
+            # Try to get lesson link if we have lesson number
+            lesson_link = None
+            if lesson_num is not None and course_title != 'unknown':
+                try:
+                    lesson_link = self.store.get_lesson_link(course_title, lesson_num)
+                except Exception as e:
+                    print(f"Error getting lesson link: {e}")
+            
+            # Create source object
+            if lesson_link:
+                source_obj = {
+                    "text": source_text,
+                    "url": lesson_link
+                }
+                sources.append(json.dumps(source_obj))
+            else:
+                # Fallback to plain text if no link available
+                sources.append(source_text)
             
             formatted.append(f"{header}\n{doc}")
         
