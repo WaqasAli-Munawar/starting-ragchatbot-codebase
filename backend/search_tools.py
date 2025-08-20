@@ -62,28 +62,35 @@ class CourseSearchTool(Tool):
             Formatted search results or error message
         """
         
-        # Use the vector store's unified search interface
-        results = self.store.search(
-            query=query,
-            course_name=course_name,
-            lesson_number=lesson_number
-        )
-        
-        # Handle errors
-        if results.error:
-            return results.error
-        
-        # Handle empty results
-        if results.is_empty():
-            filter_info = ""
-            if course_name:
-                filter_info += f" in course '{course_name}'"
-            if lesson_number:
-                filter_info += f" in lesson {lesson_number}"
-            return f"No relevant content found{filter_info}."
-        
-        # Format and return results
-        return self._format_results(results)
+        try:
+            # Use the vector store's unified search interface
+            results = self.store.search(
+                query=query,
+                course_name=course_name,
+                lesson_number=lesson_number
+            )
+            
+            # Handle errors
+            if results.error:
+                return results.error
+            
+            # Handle empty results
+            if results.is_empty():
+                filter_info = ""
+                if course_name:
+                    filter_info += f" in course '{course_name}'"
+                if lesson_number:
+                    filter_info += f" in lesson {lesson_number}"
+                return f"No relevant content found{filter_info}."
+            
+            # Format and return results
+            return self._format_results(results)
+            
+        except Exception as e:
+            # Catch any unexpected exceptions from vector store or formatting
+            error_msg = f"Search tool error: {str(e)}"
+            print(f"CourseSearchTool exception: {error_msg}")  # Log for debugging
+            return error_msg
     
     def _format_results(self, results: SearchResults) -> str:
         """Format search results with course and lesson context"""
@@ -172,3 +179,89 @@ class ToolManager:
         for tool in self.tools.values():
             if hasattr(tool, 'last_sources'):
                 tool.last_sources = []
+
+
+class CourseOutlineTool(Tool):
+    """Tool for getting course outlines with full lesson lists"""
+    
+    def __init__(self, vector_store: VectorStore):
+        self.store = vector_store
+    
+    def get_tool_definition(self) -> Dict[str, Any]:
+        """Return Anthropic tool definition for this tool"""
+        return {
+            "name": "get_course_outline",
+            "description": "Get complete course outline including title, link, and all lessons with their numbers and titles",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "course_name": {
+                        "type": "string",
+                        "description": "Course title or partial title (e.g. 'MCP', 'Introduction')"
+                    }
+                },
+                "required": ["course_name"]
+            }
+        }
+    
+    def execute(self, course_name: str) -> str:
+        """
+        Get course outline with complete lesson list.
+        
+        Args:
+            course_name: Course title or partial title
+            
+        Returns:
+            Formatted course outline or error message
+        """
+        # Resolve course name using vector search
+        resolved_course = self.store._resolve_course_name(course_name)
+        if not resolved_course:
+            return f"No course found matching '{course_name}'"
+        
+        # Get course metadata from catalog
+        try:
+            results = self.store.course_catalog.get(ids=[resolved_course])
+            if not results or not results['metadatas'] or not results['metadatas'][0]:
+                return f"Course metadata not found for '{resolved_course}'"
+            
+            metadata = results['metadatas'][0]
+            return self._format_outline(metadata)
+            
+        except Exception as e:
+            return f"Error retrieving course outline: {str(e)}"
+    
+    def _format_outline(self, metadata: Dict[str, Any]) -> str:
+        """Format course metadata into readable outline"""
+        import json
+        
+        # Extract basic course info
+        title = metadata.get('title', 'Unknown Course')
+        instructor = metadata.get('instructor', '')
+        course_link = metadata.get('course_link', '')
+        lessons_json = metadata.get('lessons_json', '[]')
+        
+        # Build outline
+        outline = [f"Course: {title}"]
+        
+        if instructor:
+            outline.append(f"Instructor: {instructor}")
+        
+        if course_link:
+            outline.append(f"Course Link: {course_link}")
+        
+        # Parse and format lessons
+        try:
+            lessons = json.loads(lessons_json)
+            if lessons:
+                outline.append("\nLessons:")
+                for lesson in lessons:
+                    lesson_num = lesson.get('lesson_number', '?')
+                    lesson_title = lesson.get('lesson_title', 'Untitled')
+                    outline.append(f"  {lesson_num}. {lesson_title}")
+            else:
+                outline.append("\nNo lessons found")
+        except (json.JSONDecodeError, TypeError):
+            outline.append("\nError parsing lesson information")
+        
+        return "\n".join(outline)
